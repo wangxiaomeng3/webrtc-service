@@ -16,10 +16,19 @@ function start(handle, port){
 	function onRequest(req,res){
 		var urldate = url.parse(req.url,true),
 			pathname = urldate.pathname,
-			info = {"res": res};
+			info = {"res": res,
+					"query":urldata.query,
+					"postData":""};
 		
 		log("Request for " + pathname + " received");
-		route(handle, pathname, info);
+		req.setEncoding("utf8");
+		req.addListener("data", function(postDataChunk){
+			info.postData += postDataChunk;
+			log("Received POST data chunk '" + postDataChunk + "'.");
+		});
+		req.addListener("end",function(){
+			route(handle, pathname, info);
+		});
 	}
 	
 	http.createServer(onRequest).listen(port);
@@ -63,7 +72,8 @@ function createFilePath(pathname){
 
 // 打开指定文件、读取其中的内容并将这些内容发送至客户端
 function serveFile(filepath, info){
-	var res = info.res;
+	var res = info.res,
+		query = info.query;
 	
 	log("Serving file " + filepath);
 	fs.open(filepath, 'r', function(err, fd){
@@ -83,8 +93,9 @@ function serveFile(filepath, info){
 			log('just read ' + readBytes + ' bytes');
 			if(readBytes>0){
 				res.writeHead(200,
-				{"Content-Type": contentType(filepath)});
-				res.write(readBuffer.toString('utf8', 0, readBytes));
+							{"Content-Type": contentType(filepath)});
+				res.write(addQuery(readBuffer.toString('utf8', 0, readBytes),
+									query));
 			}
 			res.end();
 		});
@@ -105,6 +116,17 @@ function contentType(filepath){
 		}
 	}
 	return ("text/html");
+}
+
+// 此函数设计用于 HTML 文件，可将文件中的第一个空脚本块替换为一个特定的对象，该对象表示请求 URI 中包含的所有查询参数。
+function(str, q){
+	if(q){
+		return str.replace('<script></script>'
+							,'<script>var queryparams = '+
+							JSON.stringify(q)+';<script>');
+	} else {
+		return str;
+	}
 }
 
 // 确定非文件路径的处理程序，然后执行该程序
